@@ -778,7 +778,15 @@ function shuffle(arr) {
 }
 
 function versionLabel(i, type) {
-  return type==='letter' ? String.fromCharCode(65+i) : String(i+1);
+  if (type !== 'letter') return String(i + 1);
+  // A-Z, then AA-AZ, BA-BZ, ... ZA-ZZ, then AAA, etc.
+  let label = '';
+  let n = i;
+  do {
+    label = String.fromCharCode(65 + (n % 26)) + label;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return label;
 }
 
 function getBlankLen(answers) {
