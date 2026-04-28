@@ -1,0 +1,1771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QTI → PDF / DOCX Converter</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+<!-- MathJax 3: fontCache:'none' makes every SVG self-contained (no shared defs), required for canvas rendering -->
+<script>
+  MathJax = {
+    startup: { typeset: false },
+    svg: { fontCache: 'none' }
+  };
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f4f6fb;--surface:#fff;--primary:#2563eb;--primary-dark:#1d4ed8;
+  --accent:#7c3aed;--danger:#dc2626;--success:#16a34a;--border:#d1d5db;
+  --text:#111827;--muted:#6b7280;--radius:10px;--shadow:0 2px 12px rgba(0,0,0,.1);
+}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:20px}
+h1{font-size:1.7rem;font-weight:700;color:var(--primary);display:flex;align-items:center;gap:10px}
+h1 span{font-size:1rem;font-weight:400;color:var(--muted);background:var(--bg);padding:3px 10px;border-radius:20px;border:1px solid var(--border)}
+h2{font-size:1.05rem;font-weight:600;margin-bottom:12px;color:var(--text)}
+h3{font-size:.9rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}
+.header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}
+.card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px;margin-bottom:18px}
+.drop-zone{border:2px dashed var(--border);border-radius:var(--radius);padding:36px 20px;text-align:center;cursor:pointer;
+  transition:all .2s;background:var(--bg);position:relative}
+.drop-zone:hover,.drop-zone.drag-over{border-color:var(--primary);background:#eff6ff}
+.drop-zone svg{width:40px;height:40px;color:var(--muted);margin-bottom:10px}
+.drop-zone p{color:var(--muted);font-size:.95rem}
+.drop-zone p strong{color:var(--primary);cursor:pointer}
+.drop-zone input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.file-list{margin-top:14px;display:flex;flex-direction:column;gap:6px}
+.file-item{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;
+  background:var(--bg);border-radius:7px;border:1px solid var(--border);font-size:.9rem}
+.file-item .name{font-weight:500;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-item .tags{display:flex;gap:5px;flex-wrap:wrap}
+.tag{font-size:.75rem;padding:2px 8px;border-radius:20px;font-weight:500}
+.tag-mc{background:#dbeafe;color:#1d4ed8}
+.tag-tf{background:#fef3c7;color:#92400e}
+.tag-fib{background:#d1fae5;color:#065f46}
+.tag-sa{background:#ede9fe;color:#5b21b6}
+.tag-essay{background:#fce7f3;color:#9d174d}
+.tag-num{background:#ffedd5;color:#9a3412}
+.file-item .remove{background:none;border:none;color:var(--danger);cursor:pointer;font-size:1.1rem;padding:2px 6px;border-radius:4px}
+.file-item .remove:hover{background:#fee2e2}
+.totals-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:12px}
+.total-box{background:var(--bg);border-radius:8px;padding:12px 14px;text-align:center;border:1px solid var(--border)}
+.total-box .n{font-size:1.6rem;font-weight:700;color:var(--primary)}
+.total-box .lbl{font-size:.75rem;color:var(--muted);margin-top:2px}
+.config-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:640px){.config-grid{grid-template-columns:1fr}}
+.field{display:flex;flex-direction:column;gap:5px}
+label{font-size:.85rem;font-weight:500;color:var(--muted)}
+input[type=text],input[type=number],select{padding:8px 12px;border:1px solid var(--border);border-radius:6px;
+  font-size:.95rem;width:100%;transition:border-color .2s;font-family:inherit}
+input[type=text]:focus,input[type=number]:focus,select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+.checkbox-row{display:flex;align-items:center;gap:8px;margin-top:4px}
+.checkbox-row input[type=checkbox]{width:16px;height:16px;cursor:pointer;accent-color:var(--primary)}
+.checkbox-row label{font-size:.9rem;font-weight:400;color:var(--text);cursor:pointer;margin:0}
+.key-options{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.hint{font-size:.78rem;color:var(--muted);margin-top:3px}
+.title-preview{font-size:.85rem;color:var(--accent);margin-top:4px;font-style:italic}
+.btn{padding:10px 22px;border-radius:7px;font-size:.95rem;font-weight:600;cursor:pointer;border:none;transition:all .15s;display:inline-flex;align-items:center;gap:7px}
+.btn-primary{background:var(--primary);color:#fff}
+.btn-primary:hover{background:var(--primary-dark)}
+.btn-primary:disabled{background:#93c5fd;cursor:not-allowed}
+.btn-secondary{background:var(--bg);color:var(--text);border:1px solid var(--border)}
+.btn-secondary:hover{background:var(--border)}
+.progress-wrap{margin-top:16px;display:none}
+.progress-bar{height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden;margin-top:8px}
+.progress-fill{height:100%;background:var(--primary);border-radius:4px;transition:width .3s;width:0}
+.progress-msg{font-size:.85rem;color:var(--muted)}
+.alert{padding:12px 16px;border-radius:7px;font-size:.9rem;margin-bottom:12px;display:flex;align-items:flex-start;gap:10px}
+.alert-warn{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}
+.alert-err{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
+.alert-ok{background:#d1fae5;color:#065f46;border:1px solid #6ee7b7}
+.section-header{display:flex;align-items:center;justify-content:space-between}
+.badge{background:var(--primary);color:#fff;font-size:.75rem;padding:2px 8px;border-radius:20px;font-weight:600}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:600px){.two-col{grid-template-columns:1fr}}
+.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
+.per-file-toggle{font-size:.8rem;color:var(--primary);cursor:pointer;text-decoration:underline;margin-top:6px;display:inline-block}
+.per-file-grid{display:none;margin-top:10px;flex-direction:column;gap:8px}
+.per-file-grid.open{display:flex}
+.per-file-row{display:flex;align-items:center;gap:10px;font-size:.85rem}
+.per-file-row span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
+.per-file-row input{width:70px;flex:none}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>📄 QTI → PDF / DOCX <span>Assessment Builder</span></h1>
+</div>
+
+<!-- UPLOAD -->
+<div class="card">
+  <h2>1. Upload QTI Files</h2>
+  <div class="drop-zone" id="dropZone">
+    <input type="file" id="fileInput" accept=".zip" multiple>
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7h18M3 12h18M3 17h18"/>
+    </svg>
+    <p><strong>Click to browse</strong> or drag &amp; drop QTI .zip files here</p>
+    <p style="font-size:.8rem;margin-top:4px">Multiple files supported</p>
+  </div>
+  <div class="file-list" id="fileList"></div>
+</div>
+
+<!-- QUESTION SUMMARY -->
+<div class="card" id="summaryCard" style="display:none">
+  <div class="section-header">
+    <h2>2. Question Bank Summary</h2>
+    <span class="badge" id="totalBadge">0 questions</span>
+  </div>
+  <div id="perFileSummary"></div>
+  <hr class="divider">
+  <h3>All Files Combined</h3>
+  <div class="totals-grid" id="totalsGrid"></div>
+</div>
+
+<!-- CONFIG -->
+<div class="card" id="configCard" style="display:none">
+  <h2>3. Build Configuration</h2>
+  <div id="alerts"></div>
+
+  <div class="config-grid">
+    <div class="field">
+      <label>Exam Title (use {V} for version)</label>
+      <input type="text" id="titleInput" value="Unit 1 Test — Version {V}" oninput="updateTitlePreview()">
+      <div class="title-preview" id="titlePreview"></div>
+    </div>
+    <div class="field">
+      <label>Version label type</label>
+      <select id="versionType" onchange="updateTitlePreview()">
+        <option value="number">Numbers (1, 2, 3…)</option>
+        <option value="letter">Letters (A, B, C…)</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="config-grid" style="margin-top:14px">
+    <div class="field">
+      <label>Number of versions</label>
+      <input type="number" id="numVersions" value="2" min="1" max="26">
+    </div>
+    <div class="field">
+      <label>Total questions per version</label>
+      <input type="number" id="numQuestions" value="20" min="1">
+      <div class="hint">Each version independently draws a random set</div>
+    </div>
+  </div>
+
+  <span class="per-file-toggle" id="perFileToggle" onclick="togglePerFile()" style="display:none">
+    ▸ Set question counts per file
+  </span>
+  <div class="per-file-grid" id="perFileGrid"></div>
+
+  <hr class="divider">
+
+  <div class="two-col">
+    <div>
+      <h3>Output Format</h3>
+      <div class="checkbox-row"><input type="checkbox" id="fmtPDF" checked><label for="fmtPDF">PDF (.pdf)</label></div>
+      <div class="checkbox-row"><input type="checkbox" id="fmtDOCX"><label for="fmtDOCX">Word (.docx)</label></div>
+    </div>
+    <div>
+      <h3>Answer Key Options</h3>
+      <div class="checkbox-row"><input type="checkbox" id="keyFull" checked><label for="keyFull">Full layout key (answers shown inline)</label></div>
+      <div class="checkbox-row"><input type="checkbox" id="keyCompact" checked><label for="keyCompact">Compact key (number → answer list)</label></div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="two-col">
+    <div>
+      <h3>Essay / Short Answer Space</h3>
+      <div class="field">
+        <label>Blank space (inches) below essay / short answer</label>
+        <input type="number" id="essayInches" value="2" min="0.5" max="6" step="0.5">
+        <div class="hint">Also applies to short answer questions</div>
+      </div>
+    </div>
+    <div>
+      <h3>Header Lines</h3>
+      <div class="checkbox-row"><input type="checkbox" id="showName" checked><label for="showName">Name line</label></div>
+      <div class="checkbox-row"><input type="checkbox" id="showDate" checked><label for="showDate">Date line</label></div>
+      <div class="checkbox-row"><input type="checkbox" id="showPeriod" checked><label for="showPeriod">Period line</label></div>
+    </div>
+  </div>
+
+  <div style="margin-top:20px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <button class="btn btn-primary" id="generateBtn" onclick="generate()">
+      ⚡ Generate &amp; Download ZIP
+    </button>
+    <div class="progress-wrap" id="progressWrap">
+      <div class="progress-msg" id="progressMsg">Processing…</div>
+      <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════
+const state = {
+  files: [],        // {name, questions:[]}
+};
+
+// ═══════════════════════════════════════════════════════════════
+//  QTI PARSER
+// ═══════════════════════════════════════════════════════════════
+
+function getMetaValue(item, label) {
+  const fields = item.querySelectorAll('qtimetadatafield');
+  for (const f of fields) {
+    const fl = f.querySelector('fieldlabel');
+    if (fl && fl.textContent.trim() === label) {
+      const fe = f.querySelector('fieldentry');
+      return fe ? fe.textContent.trim() : '';
+    }
+  }
+  return '';
+}
+
+function mattextContent(el) {
+  // el is a <mattext> node; textContent is already entity-decoded by XML parser
+  return el ? el.textContent : '';
+}
+
+function htmlToPlainText(html) {
+  if (!html) return '';
+  const d = document.createElement('div');
+  d.innerHTML = prepHtml(html);  // prepHtml prevents browser 404s on remote img src
+  // Equation images → LaTeX text; uploaded images → [image]
+  for (const img of d.querySelectorAll('img')) {
+    const altText = img.getAttribute('alt') || '';
+    const eq = img.getAttribute('data-equation-content') ||
+               (altText.startsWith('LaTeX:') ? altText.replace(/^LaTeX:\s*/, '') : '');
+    img.replaceWith(document.createTextNode(eq ? eq : '[image]'));
+  }
+  // code/pre → backtick notation so inline code is visible in plain text
+  for (const c of d.querySelectorAll('code,kbd,tt')) {
+    c.textContent = '`' + c.textContent + '`';
+  }
+  for (const pre of d.querySelectorAll('pre')) {
+    pre.textContent = '\n' + pre.textContent.trim() + '\n';
+  }
+  // Use Unicode sentinels for intentional breaks so we can distinguish them
+  // from HTML source-formatting whitespace (e.g. XML line-wrap newlines).
+  for (const br of d.querySelectorAll('br')) br.replaceWith('\u2028');        // line sep
+  for (const p  of d.querySelectorAll('p,div,li')) p.after('\u2029');         // para sep
+  let t = (d.textContent || '').replace(/\u00a0/g, ' ');
+  // Collapse any raw \n (XML/HTML source formatting) that are NOT our sentinels
+  t = t.replace(/[ \t]*\n[ \t]*/g, ' ');
+  // Restore intentional breaks
+  t = t.replace(/\u2028/g, '\n').replace(/\u2029/g, '\n');
+  t = t.replace(/\n{3,}/g, '\n\n').trim();
+  return t;
+}
+
+// Returns [{text, isCode}] segments for DOCX inline rendering
+// Split a plain-text string on inline markdown and MathJax delimiters,
+// returning an array of run descriptors: {text, isCode, isBlock, isBold, isItalic, isMath}
+function inlineMarkdown(text) {
+  if (!text) return [];
+  // Order matters: longer/greedier patterns first
+  const parts = text.split(
+    /(```[\s\S]*?```|`[^`\n]+`|\*\*[^*]+\*\*|\*[^*\n]+\*|\$\$[\s\S]+?\$\$|\$[^$\n]+\$|\\\[[\s\S]+?\\\]|\\\([^)]+\\\))/g
+  );
+  const segs = [];
+  for (const p of parts) {
+    if (!p) continue;
+    if (p.startsWith('```')) {
+      let code = p.slice(3, -3);
+      const nl = code.indexOf('\n');
+      // strip optional language tag on first line
+      if (nl !== -1 && /^\s*\w*\s*$/.test(code.slice(0, nl))) code = code.slice(nl + 1);
+      segs.push({text: code.trim(), isCode: true, isBlock: true});
+    } else if (p.startsWith('`')) {
+      segs.push({text: p.slice(1, -1), isCode: true});
+    } else if (p.startsWith('**')) {
+      segs.push({text: p.slice(2, -2), isBold: true});
+    } else if (p.startsWith('*')) {
+      segs.push({text: p.slice(1, -1), isItalic: true});
+    } else if (p.startsWith('$$') || p.startsWith('\\[')) {
+      segs.push({text: p.replace(/^\$\$|^\\\[|\$\$$|\\\]$/g,'').trim(), isMath: true, isDisplay: true});
+    } else if (p.startsWith('$') || p.startsWith('\\(')) {
+      segs.push({text: p.replace(/^\$|^\\\(|\$$|\\\)$/g,'').trim(), isMath: true});
+    } else {
+      segs.push({text: p});
+    }
+  }
+  return segs.filter(s => s.text);
+}
+
+// Walk an HTML string and return run descriptors, applying inlineMarkdown to text nodes
+function htmlToRuns(html) {
+  if (!html) return [{text: ''}];
+  const d = document.createElement('div');
+  d.innerHTML = prepHtml(html);  // prevents browser fetching remote img URLs
+  const runs = [];
+
+  function walk(n, ctx) {
+    ctx = ctx || {};
+    if (n.nodeType === 3) {
+      // Collapse XML/HTML source-formatting newlines (line-wrap) to a single space.
+      // Only intentional breaks inserted by our walk() produce real '\n' tokens.
+      let t = n.textContent.replace(/\u00a0/g, ' ').replace(/[ \t]*\n[ \t]*/g, ' ');
+      if (!t) return;
+      for (const seg of inlineMarkdown(t)) {
+        runs.push({
+          ...seg,
+          isBold:   seg.isBold   || ctx.bold   || false,
+          isItalic: seg.isItalic || ctx.italic || false,
+        });
+      }
+    } else if (n.nodeType === 1) {
+      const tag = n.tagName.toLowerCase();
+      if (tag === 'img') {
+        // Equation images (MathJax / Canvas LMS) have data-equation-content,
+        // OR an alt that explicitly starts with "LaTeX:".
+        // Do NOT treat a plain alt like "image.png" as LaTeX.
+        const altText = n.getAttribute('alt') || '';
+        const eq = n.getAttribute('data-equation-content') ||
+                   (altText.startsWith('LaTeX:') ? altText.replace(/^LaTeX:\s*/, '') : '');
+        if (eq) {
+          // Use pre-rendered PNG from mathCache if available; fall back to italic text
+          const cached = mathCache['I:' + eq] || mathCache['D:' + eq];
+          if (cached && cached.dataUrl) {
+            runs.push({isImage: true, src: cached.dataUrl, imgW: cached.w, imgH: cached.h, isMathImg: true});
+          } else {
+            runs.push({text: eq, isMath: true}); // fallback: render as italic LaTeX source
+          }
+        } else {
+          // Uploaded media — look up in imageCache by the original src
+          const origSrc = n.getAttribute('data-orig-src') || '';
+          const ccMatch = origSrc.match(/\$IMS-CC-FILEBASE\$\/Uploaded Media\/(.+)/i);
+          const fname   = ccMatch ? decodeURIComponent(ccMatch[1]) : decodeURIComponent(origSrc.split('/').pop());
+          const cached  = imageCache[fname] || imageCache[decodeURIComponent(fname)] || imageCache[origSrc];
+          console.log('[htmlToRuns] img origSrc:', origSrc, '| fname:', fname, '| found:', !!cached, '| cacheKeys:', Object.keys(imageCache).slice(0,5));
+          if (cached) {
+            runs.push({text: '\n'});
+            runs.push({isImage: true, src: cached.dataUrl, imgW: cached.w, imgH: cached.h});
+            runs.push({text: '\n'});
+          } else {
+            runs.push({text: altText ? `[${altText}]` : '[image]'});
+          }
+        }
+      } else if (tag === 'code' || tag === 'kbd' || tag === 'tt') {
+        runs.push({text: n.textContent.replace(/\u00a0/g,' '), isCode: true});
+      } else if (tag === 'pre') {
+        runs.push({text: n.textContent.trim(), isCode: true, isBlock: true});
+      } else if (tag === 'strong' || tag === 'b') {
+        for (const c of n.childNodes) walk(c, {...ctx, bold: true});
+      } else if (tag === 'em' || tag === 'i') {
+        for (const c of n.childNodes) walk(c, {...ctx, italic: true});
+      } else if (tag === 'br') {
+        runs.push({text: '\n'});
+      } else if (['p', 'div', 'li', 'h1', 'h2', 'h3', 'h4'].includes(tag)) {
+        for (const c of n.childNodes) walk(c, ctx);
+        runs.push({text: '\n'});
+      } else {
+        for (const c of n.childNodes) walk(c, ctx);
+      }
+    }
+  }
+
+  for (const c of d.childNodes) walk(c);
+  while (runs.length && !runs[0].isImage && runs[0].text.trim() === '')       runs.shift();
+  while (runs.length && !runs[runs.length-1].isImage && runs[runs.length-1].text.trim() === '') runs.pop();
+  return runs.length ? runs : [{text: ''}];
+}
+
+// Convert run descriptors → docx TextRun / ImageRun objects
+function runsToDocxTextRuns(runs, overrides) {
+  const {TextRun} = window.docx;
+  const ImageRun = window.docx.ImageRun; // might be undefined in some builds
+  overrides = overrides || {};
+  const result = [];
+
+  for (const r of runs) {
+    // ── Pure newline run → soft line break in DOCX ───────────────────────
+    if (r.text && /^\n+$/.test(r.text)) {
+      result.push(new TextRun({break: r.text.length}));
+      continue;
+    }
+
+    // ── Image (uploaded or math) ─────────────────────────────────────────
+    if (r.isImage) {
+      if (ImageRun) {
+        try {
+          const base64 = r.src.split(',')[1] || '';
+          const type   = r.src.startsWith('data:image/png') ? 'png' : 'jpg';
+          // docx.js 8.x transformation takes screen pixels (96 DPI);
+          // it converts internally to EMUs (1 px = 9525 EMU).
+          let iw_px, ih_px;
+          if (r.isMathImg) {
+            // Canvas is 2× → display px = canvas_px / 2
+            // Target height = 11pt font ≈ 15 screen px
+            const dispH = r.imgH / 2;
+            const dispW = r.imgW / 2;
+            const targetH = Math.round(11 * 96 / 72); // ~15 px
+            ih_px = targetH;
+            iw_px = Math.max(1, Math.round(dispW * targetH / dispH));
+            if (iw_px > 300) { ih_px = Math.round(ih_px * 300 / iw_px); iw_px = 300; }
+          } else {
+            const maxPx = 500; // ~375pt at 96 DPI
+            iw_px = r.imgW || 200;
+            ih_px = r.imgH || 150;
+            if (iw_px > maxPx) { ih_px = Math.round(ih_px * maxPx / iw_px); iw_px = maxPx; }
+          }
+          result.push(new ImageRun({data: base64, transformation: {width: iw_px, height: ih_px}, type}));
+        } catch(e) {
+          result.push(new TextRun({text: '[image]', font: 'Times New Roman', size: overrides.size || 22}));
+        }
+      } else {
+        result.push(new TextRun({text: '[image]', font: overrides.font || 'Times New Roman', size: overrides.size || 22}));
+      }
+      continue;
+    }
+
+    // ── Code block: split on \n using break:1 so Word renders real line breaks ──
+    if (r.isBlock) {
+      // Code fence always on its own line — insert a soft line break before and after
+      result.push(new TextRun({break: 1})); // newline before
+      const lines = (r.text || '').split('\n');
+      while (lines.length > 1 && lines[lines.length - 1] === '') lines.pop(); // trim trailing blank
+      lines.forEach((line, idx) => {
+        const tr = {text: line || ' ', font: 'Courier New', size: 20};
+        if (idx > 0) tr.break = 1;
+        result.push(new TextRun(tr));
+      });
+      result.push(new TextRun({break: 1})); // newline after
+      continue;
+    }
+
+    if (r.isCode && r.text && r.text.includes('\n')) {
+      // Multi-line inline code: split lines with break:1
+      r.text.split('\n').forEach((line, idx) => {
+        const tr = {text: line || ' ', font: 'Courier New', size: 20};
+        if (idx > 0) tr.break = 1;
+        result.push(new TextRun(tr));
+      });
+      continue;
+    }
+
+    // ── Normal text run ───────────────────────────────────────────────────
+    const isCode = r.isCode || r.isBlock;
+    // For DOCX: blank runs render as underlined spaces (conventional fill-in-blank look)
+    const docxText = (r.isBlank && !r.isBold)
+      ? ' '.repeat(r.text ? r.text.length : 8)  // student blank → underlined spaces
+      : (r.text || '');
+    result.push(new TextRun({
+      text:      docxText,
+      bold:      overrides.bold      || r.isBold      || false,
+      italics:   overrides.italics   || r.isItalic    || r.isMath || false,
+      underline: (r.isUnderline || r.isBlank) ? {} : undefined,
+      font:      isCode ? 'Courier New' : (overrides.font || 'Times New Roman'),
+      size:      isCode ? 20            : (overrides.size || 22),
+      color:     overrides.color || undefined,
+    }));
+  }
+
+  return result;
+}
+
+function findCorrectIdent(item) {
+  const resProc = item.querySelector('resprocessing');
+  if (!resProc) return null;
+  for (const cond of resProc.querySelectorAll('respcondition')) {
+    const sv = cond.querySelector('setvar');
+    if (sv && (sv.textContent.trim()==='100' || parseFloat(sv.textContent)>0)) {
+      const ve = cond.querySelector('varequal');
+      if (ve) return ve.textContent.trim();
+    }
+  }
+  return null;
+}
+
+function parseQTIXML(xmlText) {
+  const p = new DOMParser();
+  const doc = p.parseFromString(xmlText, 'text/xml');
+  if (doc.querySelector('parsererror')) return [];
+  const items = doc.querySelectorAll('item');
+  return Array.from(items).map(parseItem).filter(Boolean);
+}
+
+function parseItem(item) {
+  const ident = item.getAttribute('ident');
+  if (!ident) return null;
+  const type = getMetaValue(item, 'question_type');
+  if (!type) return null;
+
+  const mainMt = item.querySelector('presentation > material > mattext');
+  const questionHTML = mainMt ? mainMt.textContent : '';
+
+  switch (type) {
+    case 'multiple_choice_question': return parseMCQ(item, ident, 'multiple_choice', questionHTML);
+    case 'true_false_question':      return parseMCQ(item, ident, 'true_false', questionHTML);
+    case 'fill_in_multiple_blanks_question':
+    case 'fill_in_blank_question':   return parseFIB(item, ident, questionHTML);
+    case 'short_answer_question':    return parseShortAnswer(item, ident, questionHTML);
+    case 'essay_question':           return {ident, type:'essay', questionHTML, answers:[]};
+    case 'numerical_question':       return parseNumerical(item, ident, questionHTML);
+    default:                         return {ident, type:'essay', questionHTML, answers:[]};
+  }
+}
+
+function parseMCQ(item, ident, type, questionHTML) {
+  const choices = [];
+  const rl = item.querySelector('presentation response_lid');
+  if (rl) {
+    for (const lbl of rl.querySelectorAll('response_label')) {
+      const li = lbl.getAttribute('ident');
+      const mt = lbl.querySelector('mattext');
+      choices.push({ ident: li, text: mt ? mt.textContent : '' });
+    }
+  }
+  const correctIdent = findCorrectIdent(item);
+  return { ident, type, questionHTML, choices, correctIdent };
+}
+
+function parseFIB(item, ident, questionHTML) {
+  const blanks = [];
+  const lids = item.querySelectorAll('presentation response_lid');
+  for (const lid of lids) {
+    const uuid = lid.getAttribute('ident').replace(/^response_/, '');
+    const answers = [];
+    for (const lbl of lid.querySelectorAll('response_label')) {
+      const mt = lbl.querySelector('mattext');
+      const ans = mt ? mt.textContent.trim() : '';
+      if (ans) answers.push(ans);
+    }
+    // deduplicate
+    const uniq = [...new Set(answers)];
+    blanks.push({ uuid, answers: uniq });
+  }
+  return { ident, type:'fill_in_blanks', questionHTML, blanks };
+}
+
+function parseShortAnswer(item, ident, questionHTML) {
+  const answers = [];
+  for (const ve of item.querySelectorAll('resprocessing varequal')) {
+    const a = ve.textContent.trim();
+    if (a) answers.push(a);
+  }
+  return { ident, type:'short_answer', questionHTML, answers:[...new Set(answers)] };
+}
+
+function parseNumerical(item, ident, questionHTML) {
+  let exact=null, margin=null, min=null, max=null;
+  const ve = item.querySelector('resprocessing varequal');
+  if (ve) {
+    exact = parseFloat(ve.textContent.trim());
+    const m = ve.getAttribute('margin');
+    if (m) margin = parseFloat(m);
+  }
+  const vgte = item.querySelector('resprocessing vargte');
+  const vlte = item.querySelector('resprocessing varlte');
+  if (vgte) min = parseFloat(vgte.textContent.trim());
+  if (vlte) max = parseFloat(vlte.textContent.trim());
+  return { ident, type:'numerical', questionHTML, exact, margin, min, max };
+}
+
+// ── Image cache: populated by loadQTIZip; maps filename → {dataUrl, w, h} ──
+const imageCache = {};
+
+function blobToDataUrl(blob) {
+  return new Promise(resolve => {
+    const fr = new FileReader();
+    fr.onload  = () => resolve(fr.result);
+    fr.onerror = () => resolve('');
+    fr.readAsDataURL(blob);
+  });
+}
+
+function getImageDims(dataUrl) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload  = () => resolve({w: img.naturalWidth, h: img.naturalHeight});
+    img.onerror = () => resolve({w: 200, h: 150});
+    img.src = dataUrl;
+  });
+}
+
+// Prevent browser from fetching remote image URLs during innerHTML parsing.
+// Moves src → data-orig-src and blanks src on every <img> tag.
+function prepHtml(html) {
+  return html.replace(/(<img\b[^>]*?)\bsrc\s*=\s*(["'])(.*?)\2/gi,
+    (m, pre, q, src) => `${pre}data-orig-src="${src.replace(/"/g,'&quot;')}" src="data:,"`);
+}
+
+// ── Math equation cache: latex string → {dataUrl, w, h} ─────────────────────
+const mathCache = {};
+
+// Renders a LaTeX string to a PNG data URL via MathJax 3 SVG output.
+// MathJax SVG embeds all glyph paths inline, so canvas rendering is reliable.
+async function latexToPng(latex, displayMode = false) {
+  const key = (displayMode ? 'D:' : 'I:') + latex;
+  if (mathCache[key]) return mathCache[key];
+  const fail = { dataUrl: '', w: 0, h: 0 };
+  try {
+    if (!window.MathJax?.tex2svgPromise) return fail;
+    const node   = await MathJax.tex2svgPromise(latex, { display: displayMode });
+    const svgEl  = node.querySelector('svg');
+    if (!svgEl) return fail;
+
+    // Measure pixel size by briefly appending to DOM at 16px base
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:fixed;left:-9999px;top:0;font-size:16px;line-height:1;visibility:hidden';
+    wrap.appendChild(svgEl.cloneNode(true));
+    document.body.appendChild(wrap);
+    await new Promise(r => requestAnimationFrame(r));
+    const rect = wrap.querySelector('svg').getBoundingClientRect();
+    document.body.removeChild(wrap);
+
+    const scale = 2; // 2× for hi-DPI
+    const pw = Math.max(Math.ceil(rect.width),  10);
+    const ph = Math.max(Math.ceil(rect.height), 10);
+
+    // Set pixel dimensions on the SVG clone and serialize
+    const clone = svgEl.cloneNode(true);
+    clone.setAttribute('width',  pw);
+    clone.setAttribute('height', ph);
+    clone.style.cssText = '';
+    const svgStr = new XMLSerializer().serializeToString(clone);
+
+    return new Promise(resolve => {
+      const canvas = document.createElement('canvas');
+      canvas.width  = pw * scale;
+      canvas.height = ph * scale;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const img  = new Image();
+      const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+      const url  = URL.createObjectURL(blob);
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0, pw * scale, ph * scale);
+        URL.revokeObjectURL(url);
+        const result = { dataUrl: canvas.toDataURL('image/png'), w: pw * scale, h: ph * scale };
+        mathCache[key] = result;
+        resolve(result);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(fail); };
+      img.src = url;
+    });
+  } catch(e) {
+    console.warn('Math render failed:', latex, e);
+    return fail;
+  }
+}
+
+// Scan all question HTML for data-equation-content and pre-render them all
+// before PDF/DOCX generation so htmlToRuns can use the cached images synchronously.
+async function preRenderMath(questions) {
+  if (!window.MathJax) return;
+  await MathJax.startup.promise; // wait for MathJax to finish loading
+
+  const latexSet = new Set();
+  const scan = html => {
+    if (!html) return;
+    const re = /data-equation-content="([^"]+)"/g;
+    let m;
+    while ((m = re.exec(html)) !== null) latexSet.add(m[1]);
+  };
+  for (const q of questions) {
+    scan(q.questionHTML);
+    for (const c of q.choices || []) scan(c.text);
+    for (const c of q.shuffledChoices || []) scan(c.text);
+  }
+  // Render all unique equations (sequential to avoid overloading MathJax)
+  for (const latex of latexSet) {
+    await latexToPng(latex, false);
+  }
+}
+
+async function loadQTIZip(file) {
+  const buf = await file.arrayBuffer();
+  const zip = await JSZip.loadAsync(buf);
+  const seen = new Set();
+  const questions = [];
+
+  // Extract embedded images into imageCache before parsing questions
+  const imgExts = /\.(png|jpe?g|gif|webp)$/i;
+  const mimeMap = {png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg', gif:'image/gif', webp:'image/webp'};
+  for (const [path, entry] of Object.entries(zip.files)) {
+    if (entry.dir || !imgExts.test(path)) continue;
+    try {
+      // Use uint8array + explicit MIME type so the data URL starts with
+      // "data:image/png;base64,…" rather than "data:application/octet-stream;…"
+      const raw  = await entry.async('uint8array');
+      const ext  = path.split('.').pop().toLowerCase();
+      const mime = mimeMap[ext] || 'image/png';
+      const blob = new Blob([raw], {type: mime});
+      const dataUrl = await blobToDataUrl(blob);
+      if (!dataUrl) continue;
+      const dims = await getImageDims(dataUrl);
+      const key  = path.split('/').pop(); // basename
+      imageCache[key]  = {...dims, dataUrl};
+      imageCache[path] = {...dims, dataUrl}; // also by full relative path
+      console.log('[imageCache] stored:', key, '| size:', dims.w, '×', dims.h, '| dataUrl prefix:', dataUrl.slice(0, 40));
+    } catch(e) {
+      console.warn('[imageCache] failed to load:', path, e);
+    }
+  }
+
+  for (const [path, entry] of Object.entries(zip.files)) {
+    if (entry.dir) continue;
+    if (!path.endsWith('.xml') && !path.endsWith('.qti')) continue;
+    const text = await entry.async('string');
+    if (!text.includes('<item ') && !text.includes('<item\n')) continue;
+    if (path.includes('imsmanifest') || path.includes('assessment_meta')) continue;
+    for (const q of parseQTIXML(text)) {
+      if (!seen.has(q.ident)) { seen.add(q.ident); questions.push(q); }
+    }
+  }
+  return questions;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  UTILITIES
+// ═══════════════════════════════════════════════════════════════
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i=a.length-1;i>0;i--) {
+    const j=Math.floor(Math.random()*(i+1));
+    [a[i],a[j]]=[a[j],a[i]];
+  }
+  return a;
+}
+
+function versionLabel(i, type) {
+  return type==='letter' ? String.fromCharCode(65+i) : String(i+1);
+}
+
+function getBlankLen(answers) {
+  if (!answers||!answers.length) return 10;
+  const max = Math.max(...answers.map(a=>a.length));
+  return Math.max(8, Math.ceil(max*1.6));
+}
+
+function formatNumerical(q) {
+  if (q.exact!==null && q.exact!==undefined && !isNaN(q.exact)) {
+    let s = String(q.exact);
+    if (q.margin!==null && q.margin!==undefined && !isNaN(q.margin)) {
+      s += ` (±${q.margin})`;
+    } else if (q.min!==null && q.max!==null && !isNaN(q.min) && !isNaN(q.max)) {
+      s += ` [${q.min} – ${q.max}]`;
+    }
+    return s;
+  }
+  if (q.min!==null && q.max!==null && !isNaN(q.min) && !isNaN(q.max)) return `${q.min} – ${q.max}`;
+  return '?';
+}
+
+function questionTypeName(t) {
+  const m={multiple_choice:'Multiple Choice',true_false:'True/False',fill_in_blanks:'Fill-in-Blank',
+    short_answer:'Short Answer',essay:'Essay',numerical:'Numerical'};
+  return m[t]||t;
+}
+
+function countTypes(questions) {
+  const c={multiple_choice:0,true_false:0,fill_in_blanks:0,short_answer:0,essay:0,numerical:0};
+  for (const q of questions) if (c[q.type]!==undefined) c[q.type]++;
+  return c;
+}
+
+// Replace [uuid] with blank or answer in plain text
+function processFIBText(html, blanks, isKey) {
+  let text = htmlToPlainText(html);
+  const bmap = new Map((blanks||[]).map(b=>[b.uuid,b]));
+  return text.replace(/\[([a-f0-9-]{8,})\]/g, (match, uuid)=>{
+    const blank = bmap.get(uuid);
+    if (isKey && blank) {
+      return `[${blank.answers.join(' / ')}]`;
+    }
+    const len = blank ? getBlankLen(blank.answers) : 10;
+    return '_'.repeat(len);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  VERSION BUILDER
+// ═══════════════════════════════════════════════════════════════
+
+function buildVersions(allQuestions, count, numVersions, perFile) {
+  // perFile: [{questions:[...], count:N}] or null (use flat pool)
+  // Each version independently draws a unique random subset
+  const versions = [];
+  for (let v=0; v<numVersions; v++) {
+    let pool;
+    if (perFile && perFile.length > 0) {
+      pool = [];
+      for (const pf of perFile) {
+        const take = Math.min(pf.count, pf.questions.length);
+        pool.push(...shuffle(pf.questions).slice(0, take));
+      }
+    } else {
+      pool = shuffle([...allQuestions]).slice(0, count);
+    }
+    // shuffle the final pool order
+    pool = shuffle(pool);
+    // Prepare each question (shuffle MCQ choices)
+    const prepared = pool.map(q => prepareQuestion(q));
+    versions.push(prepared);
+  }
+  return versions;
+}
+
+function prepareQuestion(q) {
+  const p = {...q};
+  if (q.type==='multiple_choice') {
+    p.shuffledChoices = shuffle([...q.choices]);
+    const idx = p.shuffledChoices.findIndex(c=>c.ident===q.correctIdent);
+    p.correctLetter = idx>=0 ? String.fromCharCode(65+idx) : '?';
+  } else if (q.type==='true_false') {
+    // Always sort True/Yes before False/No regardless of QTI order
+    const sorted = [...q.choices].sort((a, b) => {
+      const at = htmlToPlainText(a.text).toLowerCase().trim();
+      const bt = htmlToPlainText(b.text).toLowerCase().trim();
+      if (at === 'true' || at === 'yes') return -1;
+      if (bt === 'true' || bt === 'yes') return 1;
+      return 0;
+    });
+    p.shuffledChoices = sorted;
+    const correct = q.choices.find(c=>c.ident===q.correctIdent);
+    p.correctAnswer = correct ? htmlToPlainText(correct.text) : '?';
+  }
+  return p;
+}
+
+// Compact key answer string for question q at position n
+function getCompactAnswer(q) {
+  switch(q.type) {
+    case 'multiple_choice': return q.correctLetter || '?';
+    case 'true_false':      return q.correctAnswer || '?';
+    case 'fill_in_blanks':  return (q.blanks||[]).map(b=>b.answers.join(' / ')).join(' | ');
+    case 'short_answer':    return (q.answers||[]).join(' / ') || '(any)';
+    case 'numerical':       return formatNumerical(q);
+    case 'essay':           return '(essay)';
+    default:                return '?';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  PDF RENDERER
+// ═══════════════════════════════════════════════════════════════
+
+const PT = 72; // points per inch
+
+class PDFRenderer {
+  constructor() {
+    const {jsPDF} = window.jspdf;
+    this.doc = new jsPDF({unit:'pt', format:'letter'});
+    this.PW=612; this.PH=792;
+    this.ML=72; this.MR=72; this.MT=72; this.MB=90;
+    this.TW = this.PW - this.ML - this.MR; // 468
+    this.y = this.MT;
+    this.page = 1;
+  }
+  get bottom() { return this.PH - this.MB; }
+  get room()   { return this.bottom - this.y; }
+
+  newPage() {
+    this._pageNum();
+    this.doc.addPage();
+    this.y = this.MT;
+    this.page++;
+  }
+  _pageNum() {
+    this.doc.setFont('helvetica','normal');
+    this.doc.setFontSize(9);
+    this.doc.setTextColor(140,140,140);
+    this.doc.text(String(this.page), this.PW/2, this.PH-40, {align:'center'});
+    this.doc.setTextColor(0,0,0);
+  }
+  finish() { this._pageNum(); return this.doc; }
+
+  _lh(fs) { return fs * 1.45; }
+
+  measureLines(text, maxW, fs) {
+    this.doc.setFontSize(fs||11);
+    return this.doc.splitTextToSize(text, maxW||this.TW);
+  }
+
+  measureH(text, maxW, fs) {
+    const lines = this.measureLines(text, maxW, fs);
+    return lines.length * this._lh(fs||11);
+  }
+
+  renderLines(text, x, maxW, fs, font, style) {
+    this.doc.setFont(font||'times', style||'normal');
+    this.doc.setFontSize(fs||11);
+    const lh = this._lh(fs||11);
+    const lines = this.doc.splitTextToSize(text, maxW||this.TW);
+    for (const l of lines) { this.doc.text(l, x||this.ML, this.y); this.y+=lh; }
+    return lines.length * lh;
+  }
+
+  ensureSpace(h) {
+    if (this.y + h > this.bottom && this.y > this.MT + 20) this.newPage();
+  }
+
+  hline(x1, x2, thickness) {
+    this.doc.setLineWidth(thickness||0.5);
+    this.doc.line(x1, this.y, x2, this.y);
+  }
+
+  // Render an array of run descriptors (from htmlToRuns) with inline font-switching
+  // and automatic word-wrap.  An optional plain-text prefix (e.g. "1. ") is prepended.
+  // Continuation lines hang-indent to align under the first character after the prefix.
+  renderRichText(prefix, runSegments, x, maxW, fs) {
+    const lh    = this._lh(fs);
+    const right = x + maxW; // absolute right edge
+    let curX    = x;
+    let lineStart = true;
+
+    // Hanging indent: wrapped lines align under the first char after the prefix.
+    // Compute BEFORE rendering so we can use it throughout.
+    this.doc.setFont('times', 'normal');
+    this.doc.setFontSize(fs);
+    const hangX = prefix ? x + this.doc.getTextWidth(prefix) : x;
+
+    const applyFont = seg => {
+      if (!seg || (!seg.isCode && !seg.isBlock && !seg.isBold && !seg.isItalic && !seg.isMath)) {
+        this.doc.setFont('times',   'normal'); this.doc.setFontSize(fs);
+      } else if (seg.isCode || seg.isBlock) {
+        this.doc.setFont('courier', 'normal'); this.doc.setFontSize(Math.max(8, fs - 1));
+      } else if (seg.isBold) {
+        this.doc.setFont('times',   'bold');   this.doc.setFontSize(fs);
+      } else if (seg.isItalic || seg.isMath) {
+        this.doc.setFont('times',   'italic'); this.doc.setFontSize(fs);
+      }
+    };
+
+    const renderSeg = seg => {
+      // ── Embedded image (uploaded or MathJax PNG) ──────────────────────
+      if (seg.isImage) {
+        const pxToPt = seg.isMathImg ? (fs / 32) : 0.75;
+        let iw = (seg.imgW || 200) * pxToPt;
+        let ih = (seg.imgH || 150) * pxToPt;
+        const maxImgH = seg.isMathImg ? lh * 3 : 180;
+        if (iw > maxW)     { ih = ih * maxW / iw;     iw = maxW; }
+        if (ih > maxImgH)  { iw = iw * maxImgH / ih;  ih = maxImgH; }
+        if (this.y + ih > this.bottom) this.newPage();
+        try {
+          // jsPDF 2.x accepts a full data URL or a raw base64 string.
+          // Pass the raw base64 + explicit format to maximise compatibility.
+          const fmt  = seg.src.includes('data:image/png') ? 'PNG'
+                     : seg.src.includes('data:image/jpeg') || seg.src.includes('data:image/jpg') ? 'JPEG'
+                     : 'PNG';
+          const b64  = seg.src.includes(',') ? seg.src.split(',')[1] : seg.src;
+          const imgY = seg.isMathImg ? this.y - ih * 0.8 : this.y;
+          this.doc.addImage(b64, fmt, curX, imgY, iw, ih);
+          if (seg.isMathImg) { curX += iw + 2; lineStart = false; }
+          else               { this.y += ih + 4; curX = x; lineStart = true; }
+        } catch(e) {
+          console.error('[PDF addImage] failed:', e.message, '| src prefix:', (seg.src||'').slice(0,60));
+        }
+        return;
+      }
+
+      // ── Block code fence: render each line literally (preserves indentation) ──
+      if (seg.isBlock) {
+        const codeFS  = Math.max(8, fs - 1);
+        const codeLh  = this._lh(codeFS) * 0.9;
+        this.doc.setFont('courier', 'normal');
+        this.doc.setFontSize(codeFS);
+        // Always start a code block on its own line from the left margin
+        if (!lineStart) { this.y += lh; }
+        curX = x; lineStart = true;
+        const blockLines = (seg.text || '').split('\n');
+        for (let bl = 0; bl < blockLines.length; bl++) {
+          if (bl > 0) {
+            this.y += codeLh;
+            if (this.y > this.bottom - codeLh) this.newPage();
+            curX = x;
+          }
+          const bline = blockLines[bl];
+          if (!bline && bl === blockLines.length - 1) continue; // skip lone trailing newline
+          this.doc.text(bline, curX, this.y);
+          curX += this.doc.getTextWidth(bline);
+          lineStart = false;
+        }
+        // Always end a code block on its own line so trailing text starts fresh
+        this.y += codeLh;
+        curX = hangX;
+        lineStart = true;
+        return;
+      }
+
+      // ── Normal / inline-code / bold / italic text ──────────────────────
+      const text = seg.text;
+      if (!text) return;
+      const parts = text.split('\n');
+      for (let pi = 0; pi < parts.length; pi++) {
+        // Explicit newline (from <br>, <p>, etc.) → back to left margin
+        if (pi > 0) { this.y += lh; curX = x; lineStart = true; }
+        const part = parts[pi];
+        if (!part) continue;
+        applyFont(seg);
+        const tokens = part.split(/(\s+)/);
+        for (const tok of tokens) {
+          if (!tok) continue;
+          applyFont(seg);
+          const tokW = this.doc.getTextWidth(tok);
+          if (tok.trim()) {
+            // Printable token — word-wrap to left margin
+            if (!lineStart && curX + tokW > right + 0.5) {
+              this.y += lh; curX = x; lineStart = true;
+            }
+            this.doc.text(tok, curX, this.y);
+            lineStart = false;
+          }
+          if (!lineStart || tok.trim()) curX += tokW;
+        }
+      }
+    };
+
+    if (prefix) renderSeg({text: prefix});
+    for (const seg of runSegments) renderSeg(seg);
+
+    // Only advance past the last line if we're still mid-line.
+    // (isBlock already forces lineStart=true and advances this.y itself.)
+    if (!lineStart) this.y += lh;
+    this.doc.setFont('times', 'normal');
+    this.doc.setFontSize(fs);
+  }
+
+  // Approximate height of rich text (uses plain text; good enough for page-break decisions)
+  measureRichH(html, maxW, fs) {
+    return this.measureH(htmlToPlainText(html), maxW, fs);
+  }
+
+  // Measure entire question height
+  measureQuestion(q, isKey, essayPt) {
+    const indentX = this.ML + 28;
+    const choiceW = this.TW - 28;
+    let h = 0;
+
+    if (q.type==='fill_in_blanks') {
+      const txt = processFIBText(q.questionHTML, q.blanks, isKey);
+      h += this.measureH(`1. ${txt}`, this.TW, 11) + 6;
+    } else {
+      // Use plain-text approximation (good enough for page-break decisions)
+      h += this.measureRichH(q.questionHTML, this.TW, 11) + 6;
+      if (q.type==='multiple_choice'||q.type==='true_false') {
+        const choices = q.shuffledChoices||q.choices||[];
+        for (let i=0;i<choices.length;i++) {
+          h += this.measureRichH(choices[i].text, choiceW, 11) + 2;
+        }
+        h += 4;
+      } else if (q.type==='essay'||q.type==='short_answer') {
+        h += isKey ? (this._lh(11)+8) : (essayPt + 8);
+      } else if (q.type==='numerical') {
+        h += this._lh(11)*2 + 8;
+      }
+    }
+    h += 18; // gap after question
+    return h;
+  }
+
+  renderTitle(title, opts) {
+    this.doc.setFont('times','bold');
+    this.doc.setFontSize(16);
+    const tlines = this.doc.splitTextToSize(title, this.TW);
+    for (const l of tlines) {
+      this.doc.text(l, this.PW/2, this.y, {align:'center'});
+      this.y += this._lh(16);
+    }
+    this.y += 14;
+
+    // Name / Date / Period lines
+    this.doc.setFont('times','normal');
+    this.doc.setFontSize(11);
+    const lh = this._lh(11);
+    const parts = [];
+    if (opts.showName)   parts.push({label:'Name:', w:220});
+    if (opts.showDate)   parts.push({label:'Date:', w:110});
+    if (opts.showPeriod) parts.push({label:'Period:', w:80});
+
+    if (parts.length) {
+      let cx = this.ML;
+      for (const pt of parts) {
+        this.doc.text(pt.label, cx, this.y);
+        const lx = cx + this.doc.getTextWidth(pt.label) + 6;
+        this.doc.setLineWidth(0.5);
+        this.doc.line(lx, this.y, lx+pt.w, this.y);
+        cx += pt.w + this.doc.getTextWidth(pt.label) + 18;
+      }
+      this.y += lh + 8;
+    }
+    this.y += 6;
+  }
+
+  renderQuestion(q, qNum, isKey, essayPt) {
+    const h = this.measureQuestion(q, isKey, essayPt);
+    // Only start new page if question doesn't fit AND we're not near top
+    if (this.y + h > this.bottom && this.y > this.MT + 60) {
+      this.newPage();
+    }
+
+    const indentX = this.ML + 24;
+    const choiceW = this.TW - 24;
+    const FS = 11;
+    const lh = this._lh(FS);
+
+    const qMark = `${qNum}. `;
+    this.doc.setFont('times','normal');
+    this.doc.setFontSize(FS);
+
+    if (q.type==='fill_in_blanks') {
+      const fibRuns = processFIBRuns(htmlToRuns(q.questionHTML), q.blanks, isKey);
+      this.renderRichText(qMark, fibRuns, this.ML, this.TW, FS);
+    } else {
+      const qRuns = htmlToRuns(q.questionHTML);
+      this.renderRichText(qMark, qRuns, this.ML, this.TW, FS);
+    }
+    this.y += 4;
+
+    if (q.type==='multiple_choice'||q.type==='true_false') {
+      const choices = q.shuffledChoices||q.choices||[];
+      for (let i=0;i<choices.length;i++) {
+        const letter = String.fromCharCode(65+i);
+        const isCorrect = isKey && (
+          (q.type==='multiple_choice' && q.correctLetter===letter) ||
+          (q.type==='true_false' && htmlToPlainText(choices[i].text)===q.correctAnswer)
+        );
+
+        this.doc.setFont('times', 'normal');
+        this.doc.setFontSize(FS);
+
+        if (isCorrect) {
+          // Draw an oval around just the letter — no bold, no unicode checkmark
+          const ltrW = this.doc.getTextWidth(letter);
+          const rx = ltrW / 2 + 4;
+          const ry = FS * 0.58;
+          const cx = indentX + ltrW / 2;
+          const cy = this.y - FS * 0.28;
+          this.doc.setDrawColor(0, 0, 0);
+          this.doc.setLineWidth(0.9);
+          this.doc.ellipse(cx, cy, rx, ry, 'S');
+          this.doc.setLineWidth(0.5);
+        }
+
+        const cRuns = htmlToRuns(choices[i].text);
+        this.renderRichText(`${letter}. `, cRuns, indentX, choiceW, FS);
+        this.y += 2;
+      }
+      this.y += 4;
+    } else if (q.type==='essay'||q.type==='short_answer') {
+      if (isKey && (q.answers||[]).length>0) {
+        // Use normal font — bold causes wider tracking in jsPDF built-in fonts
+        this.renderLines('Answer: '+(q.answers.join(' / ')), indentX, choiceW, FS, 'times', 'normal');
+      } else if (!isKey) {
+        // Draw writing lines spaced across the essay space
+        const lineCount = Math.max(1, Math.round(essayPt / 22));
+        const lineSpacing = essayPt / lineCount;
+        for (let i=0;i<lineCount;i++) {
+          if (this.y > this.bottom - 10) { this.newPage(); }
+          this.doc.setLineWidth(0.4);
+          this.doc.setDrawColor(180,180,180);
+          this.doc.line(indentX, this.y, this.ML+this.TW, this.y);
+          this.doc.setDrawColor(0,0,0);
+          this.y += lineSpacing;
+        }
+      }
+    } else if (q.type==='numerical') {
+      if (isKey) {
+        this.renderLines('Answer: '+formatNumerical(q), indentX, choiceW, FS, 'times', 'normal');
+      } else {
+        // blank line
+        this.doc.setLineWidth(0.5);
+        this.doc.line(indentX, this.y+lh*0.7, this.ML+this.TW*0.5, this.y+lh*0.7);
+        this.y += lh*1.2;
+      }
+    } else if (q.type==='short_answer' && !isKey) {
+      this.doc.setLineWidth(0.5);
+      this.doc.line(indentX, this.y+lh*0.7, this.ML+this.TW, this.y+lh*0.7);
+      this.y += lh*1.2;
+    }
+
+    this.y += 18; // gap between questions
+  }
+
+}
+
+// Simpler compact key renderer (single column)
+function renderCompactKeyPDF(questions, title) {
+  const r = new PDFRenderer();
+  r.doc.setFont('times','bold');
+  r.doc.setFontSize(15);
+  r.doc.text(title+' — Answer Key', r.PW/2, r.y, {align:'center'});
+  r.y += r._lh(15)+12;
+  r.doc.setFont('times','normal');
+  r.doc.setFontSize(11);
+
+  for (let i=0;i<questions.length;i++) {
+    const ans = getCompactAnswer(questions[i]);
+    const entry = `${i+1}.  ${ans}`;
+    r.ensureSpace(r._lh(11)+4);
+    r.renderLines(entry, r.ML+20, r.TW-20, 11);
+    r.y += 3;
+  }
+  return r.finish();
+}
+
+function renderExamPDF(questions, title, isKey, essayInches, opts) {
+  const r = new PDFRenderer();
+  const essayPt = essayInches * PT;
+  r.renderTitle(title, opts);
+  for (let i=0;i<questions.length;i++) {
+    r.renderQuestion(questions[i], i+1, isKey, essayPt);
+  }
+  return r.finish();
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  DOCX RENDERER
+// ═══════════════════════════════════════════════════════════════
+
+function inch(n) { return n * 1440; } // twips (kept for legacy callers)
+
+function makeDocxRuns(html, overrides) {
+  return runsToDocxTextRuns(htmlToRuns(html), overrides);
+}
+
+// Process HTML runs for a FIB question: replace [uuid] tokens with blank/answer runs.
+// Returns an array of run descriptors compatible with renderRichText / runsToDocxTextRuns.
+// Blank runs carry {isBlank:true} so DOCX can render them as underlined spaces.
+function processFIBRuns(htmlRuns, blanks, isKey) {
+  const bmap = new Map((blanks||[]).map(b=>[b.uuid, b]));
+  const result = [];
+  for (const run of htmlRuns) {
+    if (run.isImage) { result.push(run); continue; } // pass images through
+    if (!run.text)   { result.push(run); continue; }
+    // Split on [uuid] placeholders
+    const parts = run.text.split(/(\[[a-f0-9-]{8,}\])/g);
+    for (const part of parts) {
+      const m = part.match(/^\[([a-f0-9-]{8,})\]$/);
+      if (m) {
+        const b = bmap.get(m[1]);
+        if (isKey && b) {
+          result.push({text: b.answers.join(' / '), isBold: true, isBlank: true});
+        } else {
+          const len = b ? getBlankLen(b.answers) : 8;
+          result.push({text: '_'.repeat(len), isBlank: true});
+        }
+      } else if (part) {
+        result.push({...run, text: part});
+      }
+    }
+  }
+  return result;
+}
+
+function makeFIBDocxChildren(q, isKey) {
+  // Use processFIBRuns so images in the question are preserved
+  const runs = processFIBRuns(htmlToRuns(q.questionHTML), q.blanks, isKey);
+  return runsToDocxTextRuns(runs);
+}
+
+function buildDocx(questions, title, isKey, essayInches, opts, isCompactKey) {
+  const {
+    Document, Paragraph, TextRun, AlignmentType, Header, Footer,
+    PageNumber, BorderStyle, Packer,
+  } = window.docx;
+
+  const twip = n => Math.round(n * 1440); // inches → twips
+
+  // ── Header: title + name/date/period ─────────────────────────────────
+  const headerChildren = [];
+
+  headerChildren.push(new Paragraph({
+    alignment: AlignmentType.CENTER,
+    spacing: {after: 80},
+    children: [new TextRun({text: title, bold: true, size: 28, font: 'Times New Roman'})]
+  }));
+
+  const hParts = [];
+  if (opts.showName)   hParts.push('Name: ' + '_'.repeat(30));
+  if (opts.showDate)   hParts.push('Date: ' + '_'.repeat(15));
+  if (opts.showPeriod) hParts.push('Period: ' + '_'.repeat(10));
+  if (hParts.length) {
+    headerChildren.push(new Paragraph({
+      spacing: {before: 60, after: 0},
+      border: {bottom: {style: BorderStyle.SINGLE, size: 4, color: 'AAAAAA', space: 4}},
+      children: [new TextRun({text: hParts.join('     '), font: 'Times New Roman', size: 22})]
+    }));
+  }
+
+  const docHeader = new Header({children: headerChildren});
+
+  // ── Footer: title | Page N of M ──────────────────────────────────────
+  const docFooter = new Footer({
+    children: [new Paragraph({
+      alignment: AlignmentType.CENTER,
+      border: {top: {style: BorderStyle.SINGLE, size: 4, color: 'AAAAAA', space: 4}},
+      spacing: {before: 80},
+      children: [
+        new TextRun({text: title + '   \u2022   Page ', font: 'Times New Roman', size: 18, color: '666666'}),
+        new TextRun({children: [PageNumber.CURRENT], font: 'Times New Roman', size: 18, color: '666666'}),
+        new TextRun({text: ' of ', font: 'Times New Roman', size: 18, color: '666666'}),
+        new TextRun({children: [PageNumber.TOTAL_PAGES], font: 'Times New Roman', size: 18, color: '666666'}),
+      ]
+    })]
+  });
+
+  // ── Body ─────────────────────────────────────────────────────────────
+  const children = [];
+
+  function qRuns(html, overrides) {
+    return runsToDocxTextRuns(htmlToRuns(html), overrides);
+  }
+
+  if (isCompactKey) {
+    for (let i = 0; i < questions.length; i++) {
+      const ans = getCompactAnswer(questions[i]);
+      children.push(new Paragraph({
+        keepLines: true,
+        spacing: {after: 100},
+        children: [new TextRun({text: `${i+1}.  ${ans}`, font: 'Times New Roman', size: 22})]
+      }));
+    }
+  } else {
+    for (let i = 0; i < questions.length; i++) {
+      const q = questions[i];
+      const qNum = `${i+1}. `;
+      const isLastChoice = (q.type==='multiple_choice'||q.type==='true_false');
+
+      // Question text paragraph
+      let qParaChildren;
+      if (q.type === 'fill_in_blanks') {
+        qParaChildren = [
+          new TextRun({text: qNum, bold: true, font: 'Times New Roman', size: 22}),
+          ...makeFIBDocxChildren(q, isKey)
+        ];
+      } else {
+        qParaChildren = [
+          new TextRun({text: qNum, bold: true, font: 'Times New Roman', size: 22}),
+          ...qRuns(q.questionHTML)
+        ];
+      }
+
+      children.push(new Paragraph({
+        keepLines: true,
+        keepNext: isLastChoice,
+        spacing: {before: 180, after: 60},
+        children: qParaChildren
+      }));
+
+      if (q.type === 'multiple_choice' || q.type === 'true_false') {
+        const choices = q.shuffledChoices || q.choices || [];
+        for (let ci = 0; ci < choices.length; ci++) {
+          const letter = String.fromCharCode(65 + ci);
+          const ct = htmlToPlainText(choices[ci].text);
+          const isCorrect = isKey && (
+            (q.type === 'multiple_choice' && q.correctLetter === letter) ||
+            (q.type === 'true_false' && ct === q.correctAnswer)
+          );
+          children.push(new Paragraph({
+            keepLines: true,
+            keepNext: ci < choices.length - 1,
+            indent: {left: twip(0.35)},
+            spacing: {after: 40},
+            children: [
+              new TextRun({
+                text: (isCorrect ? '\u2713 ' : '') + letter + '. ',
+                font: 'Times New Roman', size: 22, bold: isCorrect,
+              }),
+              ...qRuns(choices[ci].text, isCorrect ? {bold: true} : {}),
+            ]
+          }));
+        }
+
+      } else if (q.type === 'essay' || q.type === 'short_answer') {
+        if (isKey && (q.answers || []).length > 0) {
+          children.push(new Paragraph({
+            keepLines: true,
+            indent: {left: twip(0.35)},
+            spacing: {after: 120},
+            children: [new TextRun({
+              text: 'Answer: ' + q.answers.join(' / '),
+              bold: true, font: 'Times New Roman', size: 22
+            })]
+          }));
+        } else if (!isKey) {
+          const lineCount = Math.max(2, Math.round(essayInches * 3));
+          for (let li = 0; li < lineCount; li++) {
+            children.push(new Paragraph({
+              border: {bottom: {style: BorderStyle.SINGLE, size: 6, color: 'CCCCCC', space: 1}},
+              spacing: {before: 0, after: Math.round(twip(essayInches) / lineCount)},
+              children: [new TextRun({text: '', font: 'Times New Roman', size: 22})]
+            }));
+          }
+        }
+
+      } else if (q.type === 'numerical') {
+        if (isKey) {
+          children.push(new Paragraph({
+            keepLines: true,
+            indent: {left: twip(0.35)},
+            spacing: {after: 120},
+            children: [new TextRun({
+              text: 'Answer: ' + formatNumerical(q),
+              bold: true, font: 'Times New Roman', size: 22
+            })]
+          }));
+        } else {
+          children.push(new Paragraph({
+            indent: {left: twip(0.35)},
+            spacing: {after: 140},
+            children: [new TextRun({
+              text: 'Answer: ' + '_'.repeat(20),
+              font: 'Times New Roman', size: 22
+            })]
+          }));
+        }
+      }
+    }
+  }
+
+  return new Document({
+    sections: [{
+      headers: {default: docHeader},
+      footers: {default: docFooter},
+      properties: {
+        page: {
+          margin: {
+            top:    twip(1.25), // extra room for header
+            bottom: twip(1.1),  // extra room for footer
+            left:   twip(1),
+            right:  twip(1),
+            header: twip(0.4),
+            footer: twip(0.4),
+          }
+        }
+      },
+      children
+    }]
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  GENERATE LOGIC
+// ═══════════════════════════════════════════════════════════════
+
+async function generate() {
+  const alerts = document.getElementById('alerts');
+  alerts.innerHTML = '';
+
+  const title = document.getElementById('titleInput').value || 'Assessment Version {V}';
+  const vType = document.getElementById('versionType').value;
+  const numVersions = parseInt(document.getElementById('numVersions').value)||1;
+  const numQ = parseInt(document.getElementById('numQuestions').value)||20;
+  const fmtPDF = document.getElementById('fmtPDF').checked;
+  const fmtDOCX = document.getElementById('fmtDOCX').checked;
+  const keyFull = document.getElementById('keyFull').checked;
+  const keyCompact = document.getElementById('keyCompact').checked;
+  const essayInches = parseFloat(document.getElementById('essayInches').value)||2;
+  const opts = {
+    showName:  document.getElementById('showName').checked,
+    showDate:  document.getElementById('showDate').checked,
+    showPeriod:document.getElementById('showPeriod').checked,
+  };
+
+  if (state.files.length===0) { showAlert('No QTI files loaded.','err'); return; }
+  if (!fmtPDF && !fmtDOCX) { showAlert('Please select at least one output format (PDF or DOCX).','err'); return; }
+
+  // Build question pool
+  const allQuestions = state.files.flatMap(f=>f.questions);
+  if (allQuestions.length===0) { showAlert('No questions found in uploaded files.','err'); return; }
+
+  if (numQ > allQuestions.length) {
+    showAlert(`Requested ${numQ} questions but only ${allQuestions.length} available. Using all available.`,'warn');
+  }
+
+  const effectiveQ = Math.min(numQ, allQuestions.length);
+
+  // Pre-render all LaTeX/MathJax equations to PNG images before generation
+  showAlert('Rendering math equations…', 'ok');
+  await preRenderMath(allQuestions);
+  alerts.innerHTML = '';
+
+  // Per-file config
+  const perFileGrid = document.getElementById('perFileGrid');
+  let perFile = null;
+  if (perFileGrid.classList.contains('open')) {
+    perFile = state.files.map((f,i)=>{
+      const inp = perFileGrid.querySelector(`input[data-idx="${i}"]`);
+      const cnt = inp ? parseInt(inp.value)||0 : 0;
+      return {questions:f.questions, count:cnt};
+    }).filter(pf=>pf.count>0);
+    if (perFile.length===0) perFile=null;
+  }
+
+  setProgress(0,'Building versions…');
+
+  const outputZip = new JSZip();
+  const versions = buildVersions(allQuestions, effectiveQ, numVersions, perFile);
+
+  const total = numVersions * (1 + (keyFull?1:0) + (keyCompact?1:0)) * (fmtPDF?1:0) + 
+                numVersions * (1 + (keyFull?1:0) + (keyCompact?1:0)) * (fmtDOCX?1:0);
+  let done = 0;
+
+  function tick(msg) { done++; setProgress(Math.round(done/total*100), msg); }
+
+  for (let v=0;v<numVersions;v++) {
+    const label = versionLabel(v, vType);
+    const vTitle = title.replace(/\{V\}/g, label);
+    const qs = versions[v];
+    const vBase = `version${label}`;
+
+    // Student exam
+    if (fmtPDF) {
+      const doc = renderExamPDF(qs, vTitle, false, essayInches, opts);
+      outputZip.file(`${vBase}.pdf`, doc.output('arraybuffer'));
+      tick(`Rendered ${vBase}.pdf`);
+    }
+    if (fmtDOCX) {
+      const doc = buildDocx(qs, vTitle, false, essayInches, opts, false);
+      const blob = await window.docx.Packer.toBlob(doc);
+      outputZip.file(`${vBase}.docx`, await blob.arrayBuffer());
+      tick(`Rendered ${vBase}.docx`);
+    }
+
+    // Full layout key
+    if (keyFull) {
+      const kTitle = vTitle + ' (KEY)';
+      if (fmtPDF) {
+        const doc = renderExamPDF(qs, kTitle, true, essayInches, opts);
+        outputZip.file(`${vBase}-key.pdf`, doc.output('arraybuffer'));
+        tick(`Rendered ${vBase}-key.pdf`);
+      }
+      if (fmtDOCX) {
+        const doc = buildDocx(qs, kTitle, true, essayInches, opts, false);
+        const blob = await window.docx.Packer.toBlob(doc);
+        outputZip.file(`${vBase}-key.docx`, await blob.arrayBuffer());
+        tick(`Rendered ${vBase}-key.docx`);
+      }
+    }
+
+    // Compact key
+    if (keyCompact) {
+      const kTitle = vTitle;
+      if (fmtPDF) {
+        const doc = renderCompactKeyPDF(qs, kTitle);
+        outputZip.file(`key${label}.pdf`, doc.output('arraybuffer'));
+        tick(`Rendered key${label}.pdf`);
+      }
+      if (fmtDOCX) {
+        const doc = buildDocx(qs, kTitle, true, essayInches, opts, true);
+        const blob = await window.docx.Packer.toBlob(doc);
+        outputZip.file(`key${label}.docx`, await blob.arrayBuffer());
+        tick(`Rendered key${label}.docx`);
+      }
+    }
+  }
+
+  setProgress(100,'Packaging ZIP…');
+  await new Promise(r=>setTimeout(r,50));
+
+  const zipBlob = await outputZip.generateAsync({type:'blob', compression:'DEFLATE'});
+  saveAs(zipBlob, 'assessments.zip');
+  setProgress(100,'✅ Done! Download starting…');
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  UI HELPERS
+// ═══════════════════════════════════════════════════════════════
+
+function setProgress(pct, msg) {
+  const pw = document.getElementById('progressWrap');
+  pw.style.display='block';
+  document.getElementById('progressFill').style.width=pct+'%';
+  document.getElementById('progressMsg').textContent=msg;
+}
+
+function showAlert(msg, type) {
+  const cls = {err:'alert-err',warn:'alert-warn',ok:'alert-ok'}[type]||'alert-warn';
+  document.getElementById('alerts').innerHTML=
+    `<div class="alert ${cls}">${msg}</div>`;
+}
+
+function updateTitlePreview() {
+  const title = document.getElementById('titleInput').value;
+  const vType = document.getElementById('versionType').value;
+  const lbl = vType==='letter'?'A':'1';
+  document.getElementById('titlePreview').textContent =
+    '→ e.g. "' + title.replace(/\{V\}/g, lbl) + '"';
+}
+
+function renderSummary() {
+  const summaryCard = document.getElementById('summaryCard');
+  const configCard = document.getElementById('configCard');
+
+  if (state.files.length===0) {
+    summaryCard.style.display='none';
+    configCard.style.display='none';
+    return;
+  }
+
+  summaryCard.style.display='';
+  configCard.style.display='';
+
+  // Per-file summary
+  const pfs = document.getElementById('perFileSummary');
+  pfs.innerHTML = '';
+  if (state.files.length>1) {
+    for (const f of state.files) {
+      const c = countTypes(f.questions);
+      const total = f.questions.length;
+      const div = document.createElement('div');
+      div.style.cssText='margin-bottom:8px;font-size:.85rem;color:var(--muted)';
+      div.innerHTML=`<strong style="color:var(--text)">${escHtml(f.name)}</strong> — ${total} questions: `+
+        typeSummary(c);
+      pfs.appendChild(div);
+    }
+  }
+
+  // Combined totals
+  const allQ = state.files.flatMap(f=>f.questions);
+  const ct = countTypes(allQ);
+  document.getElementById('totalBadge').textContent = allQ.length+' questions';
+  const tg = document.getElementById('totalsGrid');
+  tg.innerHTML='';
+  const types=[
+    ['multiple_choice','Multiple Choice','tag-mc'],
+    ['true_false','True/False','tag-tf'],
+    ['fill_in_blanks','Fill-in-Blank','tag-fib'],
+    ['short_answer','Short Answer','tag-sa'],
+    ['essay','Essay','tag-essay'],
+    ['numerical','Numerical','tag-num'],
+  ];
+  for (const [key,label,cls] of types) {
+    if (ct[key]>0) {
+      tg.innerHTML+=`<div class="total-box"><div class="n">${ct[key]}</div><div class="lbl">${label}</div></div>`;
+    }
+  }
+
+  // Per-file question counts UI
+  const pfg = document.getElementById('perFileGrid');
+  pfg.innerHTML='';
+  if (state.files.length>1) {
+    document.getElementById('perFileToggle').style.display='inline-block';
+    state.files.forEach((f,i)=>{
+      const row=document.createElement('div');
+      row.className='per-file-row';
+      row.innerHTML=`<span title="${escHtml(f.name)}">${escHtml(shortName(f.name))}</span>
+        <span style="color:var(--muted);font-size:.8rem">(${f.questions.length} avail.)</span>
+        <input type="number" min="0" max="${f.questions.length}" value="${Math.min(5,f.questions.length)}" data-idx="${i}">`;
+      pfg.appendChild(row);
+    });
+  } else {
+    document.getElementById('perFileToggle').style.display='none';
+  }
+
+  updateTitlePreview();
+}
+
+function typeSummary(c) {
+  const parts=[];
+  const map={multiple_choice:'MCQ',true_false:'T/F',fill_in_blanks:'FIB',short_answer:'SA',essay:'Essay',numerical:'Num'};
+  for (const [k,v] of Object.entries(map)) if(c[k]>0) parts.push(`${c[k]} ${v}`);
+  return parts.join(', ')||'none';
+}
+
+function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function shortName(n){return n.length>35?n.slice(0,32)+'…':n;}
+
+function renderFileList() {
+  const fl = document.getElementById('fileList');
+  fl.innerHTML='';
+  for (let i=0;i<state.files.length;i++) {
+    const f=state.files[i];
+    const c=countTypes(f.questions);
+    const div=document.createElement('div');
+    div.className='file-item';
+    div.innerHTML=`
+      <span class="name" title="${escHtml(f.name)}">${escHtml(f.name)}</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="tags">${buildTags(c)}</div>
+        <button class="remove" onclick="removeFile(${i})" title="Remove">✕</button>
+      </div>`;
+    fl.appendChild(div);
+  }
+}
+
+function buildTags(c){
+  let s='';
+  if(c.multiple_choice>0) s+=`<span class="tag tag-mc">${c.multiple_choice} MCQ</span>`;
+  if(c.true_false>0)      s+=`<span class="tag tag-tf">${c.true_false} T/F</span>`;
+  if(c.fill_in_blanks>0)  s+=`<span class="tag tag-fib">${c.fill_in_blanks} FIB</span>`;
+  if(c.short_answer>0)    s+=`<span class="tag tag-sa">${c.short_answer} SA</span>`;
+  if(c.essay>0)           s+=`<span class="tag tag-essay">${c.essay} Essay</span>`;
+  if(c.numerical>0)       s+=`<span class="tag tag-num">${c.numerical} Num</span>`;
+  return s||`<span class="tag" style="background:#f3f4f6;color:var(--muted)">0 questions</span>`;
+}
+
+function removeFile(i) {
+  state.files.splice(i,1);
+  renderFileList();
+  renderSummary();
+}
+
+function togglePerFile() {
+  const g=document.getElementById('perFileGrid');
+  const t=document.getElementById('perFileToggle');
+  if(g.classList.contains('open')) {
+    g.classList.remove('open');
+    t.textContent='▸ Set question counts per file';
+  } else {
+    g.classList.add('open');
+    t.textContent='▴ Hide per-file settings';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  FILE INPUT HANDLING
+// ═══════════════════════════════════════════════════════════════
+
+async function handleFiles(files) {
+  for (const file of files) {
+    if (!file.name.endsWith('.zip')) continue;
+    try {
+      const questions = await loadQTIZip(file);
+      // Check if already loaded
+      const existing = state.files.findIndex(f=>f.name===file.name);
+      const entry = {name:file.name, questions};
+      if (existing>=0) state.files[existing]=entry;
+      else state.files.push(entry);
+    } catch(e) {
+      showAlert(`Error loading ${escHtml(file.name)}: ${e.message}`,'err');
+    }
+  }
+  renderFileList();
+  renderSummary();
+}
+
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+
+fileInput.addEventListener('change', e => handleFiles(Array.from(e.target.files)));
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  handleFiles(Array.from(e.dataTransfer.files));
+});
+
+// Init title preview
+updateTitlePreview();
+</script>
+</body>
+</html>
