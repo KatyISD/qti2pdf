@@ -45,6 +45,7 @@ h3{font-size:.9rem;font-weight:600;color:var(--muted);text-transform:uppercase;l
 .tag{font-size:.75rem;padding:2px 8px;border-radius:20px;font-weight:500}
 .tag-mc{background:#dbeafe;color:#1d4ed8}
 .tag-tf{background:#fef3c7;color:#92400e}
+.tag-ma{background:#e0e7ff;color:#3730a3}
 .tag-fib{background:#d1fae5;color:#065f46}
 .tag-sa{background:#ede9fe;color:#5b21b6}
 .tag-essay{background:#fce7f3;color:#9d174d}
@@ -506,14 +507,15 @@ function parseItem(item) {
   const questionHTML = mainMt ? mainMt.textContent : '';
 
   switch (type) {
-    case 'multiple_choice_question': return parseMCQ(item, ident, 'multiple_choice', questionHTML);
-    case 'true_false_question':      return parseMCQ(item, ident, 'true_false', questionHTML);
+    case 'multiple_choice_question':  return parseMCQ(item, ident, 'multiple_choice', questionHTML);
+    case 'true_false_question':       return parseMCQ(item, ident, 'true_false', questionHTML);
+    case 'multiple_answers_question': return parseMultipleAnswers(item, ident, questionHTML);
     case 'fill_in_multiple_blanks_question':
-    case 'fill_in_blank_question':   return parseFIB(item, ident, questionHTML);
-    case 'short_answer_question':    return parseShortAnswer(item, ident, questionHTML);
-    case 'essay_question':           return {ident, type:'essay', questionHTML, answers:[]};
-    case 'numerical_question':       return parseNumerical(item, ident, questionHTML);
-    default:                         return {ident, type:'essay', questionHTML, answers:[]};
+    case 'fill_in_blank_question':    return parseFIB(item, ident, questionHTML);
+    case 'short_answer_question':     return parseShortAnswer(item, ident, questionHTML);
+    case 'essay_question':            return {ident, type:'essay', questionHTML, answers:[]};
+    case 'numerical_question':        return parseNumerical(item, ident, questionHTML);
+    default:                          return {ident, type:'essay', questionHTML, answers:[]};
   }
 }
 
@@ -529,6 +531,38 @@ function parseMCQ(item, ident, type, questionHTML) {
   }
   const correctIdent = findCorrectIdent(item);
   return { ident, type, questionHTML, choices, correctIdent };
+}
+
+function parseMultipleAnswers(item, ident, questionHTML) {
+  const choices = [];
+  const rl = item.querySelector('presentation response_lid');
+  if (rl) {
+    for (const lbl of rl.querySelectorAll('response_label')) {
+      const li = lbl.getAttribute('ident');
+      const mt = lbl.querySelector('mattext');
+      choices.push({ ident: li, text: mt ? mt.textContent : '' });
+    }
+  }
+  const correctIdents = [];
+  const resProc = item.querySelector('resprocessing');
+  if (resProc) {
+    for (const cond of resProc.querySelectorAll('respcondition')) {
+      const sv = cond.querySelector('setvar');
+      if (!sv || parseFloat(sv.textContent) <= 0) continue;
+      const andEl = cond.querySelector('conditionvar > and');
+      if (andEl) {
+        for (const child of andEl.children) {
+          if (child.tagName.toLowerCase() === 'varequal') {
+            correctIdents.push(child.textContent.trim());
+          }
+        }
+      } else {
+        const ve = cond.querySelector('conditionvar > varequal');
+        if (ve) correctIdents.push(ve.textContent.trim());
+      }
+    }
+  }
+  return { ident, type: 'multiple_answers', questionHTML, choices, correctIdents };
 }
 
 function parseFIB(item, ident, questionHTML) {
@@ -768,13 +802,13 @@ function formatNumerical(q) {
 }
 
 function questionTypeName(t) {
-  const m={multiple_choice:'Multiple Choice',true_false:'True/False',fill_in_blanks:'Fill-in-Blank',
-    short_answer:'Short Answer',essay:'Essay',numerical:'Numerical'};
+  const m={multiple_choice:'Multiple Choice',true_false:'True/False',multiple_answers:'Multiple Answer',
+    fill_in_blanks:'Fill-in-Blank',short_answer:'Short Answer',essay:'Essay',numerical:'Numerical'};
   return m[t]||t;
 }
 
 function countTypes(questions) {
-  const c={multiple_choice:0,true_false:0,fill_in_blanks:0,short_answer:0,essay:0,numerical:0};
+  const c={multiple_choice:0,true_false:0,multiple_answers:0,fill_in_blanks:0,short_answer:0,essay:0,numerical:0};
   for (const q of questions) if (c[q.type]!==undefined) c[q.type]++;
   return c;
 }
@@ -839,6 +873,11 @@ function prepareQuestion(q) {
     p.shuffledChoices = sorted;
     const correct = q.choices.find(c=>c.ident===q.correctIdent);
     p.correctAnswer = correct ? htmlToPlainText(correct.text) : '?';
+  } else if (q.type==='multiple_answers') {
+    p.shuffledChoices = shuffle([...q.choices]);
+    p.correctLetters = p.shuffledChoices
+      .map((c, i) => (q.correctIdents||[]).includes(c.ident) ? String.fromCharCode(65+i) : null)
+      .filter(Boolean);
   }
   return p;
 }
@@ -846,13 +885,14 @@ function prepareQuestion(q) {
 // Compact key answer string for question q at position n
 function getCompactAnswer(q) {
   switch(q.type) {
-    case 'multiple_choice': return q.correctLetter || '?';
-    case 'true_false':      return q.correctAnswer || '?';
-    case 'fill_in_blanks':  return (q.blanks||[]).map(b=>b.answers.join(' / ')).join(' | ');
-    case 'short_answer':    return (q.answers||[]).join(' / ') || '(any)';
-    case 'numerical':       return formatNumerical(q);
-    case 'essay':           return '(essay)';
-    default:                return '?';
+    case 'multiple_choice':  return q.correctLetter || '?';
+    case 'true_false':       return q.correctAnswer || '?';
+    case 'multiple_answers': return (q.correctLetters||[]).join(', ') || '?';
+    case 'fill_in_blanks':   return (q.blanks||[]).map(b=>b.answers.join(' / ')).join(' | ');
+    case 'short_answer':     return (q.answers||[]).join(' / ') || '(any)';
+    case 'numerical':        return formatNumerical(q);
+    case 'essay':            return '(essay)';
+    default:                 return '?';
   }
 }
 
@@ -1058,7 +1098,7 @@ class PDFRenderer {
     } else {
       // Use plain-text approximation (good enough for page-break decisions)
       h += this.measureRichH(q.questionHTML, this.TW, 11) + 6;
-      if (q.type==='multiple_choice'||q.type==='true_false') {
+      if (q.type==='multiple_choice'||q.type==='true_false'||q.type==='multiple_answers') {
         const choices = q.shuffledChoices||q.choices||[];
         for (let i=0;i<choices.length;i++) {
           h += this.measureRichH(choices[i].text, choiceW, 11) + 2;
@@ -1132,13 +1172,14 @@ class PDFRenderer {
     }
     this.y += 4;
 
-    if (q.type==='multiple_choice'||q.type==='true_false') {
+    if (q.type==='multiple_choice'||q.type==='true_false'||q.type==='multiple_answers') {
       const choices = q.shuffledChoices||q.choices||[];
       for (let i=0;i<choices.length;i++) {
         const letter = String.fromCharCode(65+i);
         const isCorrect = isKey && (
           (q.type==='multiple_choice' && q.correctLetter===letter) ||
-          (q.type==='true_false' && htmlToPlainText(choices[i].text)===q.correctAnswer)
+          (q.type==='true_false' && htmlToPlainText(choices[i].text)===q.correctAnswer) ||
+          (q.type==='multiple_answers' && (q.correctLetters||[]).includes(letter))
         );
 
         this.doc.setFont('times', 'normal');
@@ -1340,7 +1381,7 @@ function buildDocx(questions, title, isKey, essayInches, opts, isCompactKey) {
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
       const qNum = `${i+1}. `;
-      const isLastChoice = (q.type==='multiple_choice'||q.type==='true_false');
+      const isLastChoice = (q.type==='multiple_choice'||q.type==='true_false'||q.type==='multiple_answers');
 
       // Question text paragraph
       let qParaChildren;
@@ -1363,14 +1404,15 @@ function buildDocx(questions, title, isKey, essayInches, opts, isCompactKey) {
         children: qParaChildren
       }));
 
-      if (q.type === 'multiple_choice' || q.type === 'true_false') {
+      if (q.type === 'multiple_choice' || q.type === 'true_false' || q.type === 'multiple_answers') {
         const choices = q.shuffledChoices || q.choices || [];
         for (let ci = 0; ci < choices.length; ci++) {
           const letter = String.fromCharCode(65 + ci);
           const ct = htmlToPlainText(choices[ci].text);
           const isCorrect = isKey && (
             (q.type === 'multiple_choice' && q.correctLetter === letter) ||
-            (q.type === 'true_false' && ct === q.correctAnswer)
+            (q.type === 'true_false' && ct === q.correctAnswer) ||
+            (q.type === 'multiple_answers' && (q.correctLetters||[]).includes(letter))
           );
           children.push(new Paragraph({
             keepLines: true,
@@ -1641,6 +1683,7 @@ function renderSummary() {
   const types=[
     ['multiple_choice','Multiple Choice','tag-mc'],
     ['true_false','True/False','tag-tf'],
+    ['multiple_answers','Multiple Answer','tag-ma'],
     ['fill_in_blanks','Fill-in-Blank','tag-fib'],
     ['short_answer','Short Answer','tag-sa'],
     ['essay','Essay','tag-essay'],
@@ -1674,7 +1717,7 @@ function renderSummary() {
 
 function typeSummary(c) {
   const parts=[];
-  const map={multiple_choice:'MCQ',true_false:'T/F',fill_in_blanks:'FIB',short_answer:'SA',essay:'Essay',numerical:'Num'};
+  const map={multiple_choice:'MCQ',true_false:'T/F',multiple_answers:'MA',fill_in_blanks:'FIB',short_answer:'SA',essay:'Essay',numerical:'Num'};
   for (const [k,v] of Object.entries(map)) if(c[k]>0) parts.push(`${c[k]} ${v}`);
   return parts.join(', ')||'none';
 }
@@ -1702,12 +1745,13 @@ function renderFileList() {
 
 function buildTags(c){
   let s='';
-  if(c.multiple_choice>0) s+=`<span class="tag tag-mc">${c.multiple_choice} MCQ</span>`;
-  if(c.true_false>0)      s+=`<span class="tag tag-tf">${c.true_false} T/F</span>`;
-  if(c.fill_in_blanks>0)  s+=`<span class="tag tag-fib">${c.fill_in_blanks} FIB</span>`;
-  if(c.short_answer>0)    s+=`<span class="tag tag-sa">${c.short_answer} SA</span>`;
-  if(c.essay>0)           s+=`<span class="tag tag-essay">${c.essay} Essay</span>`;
-  if(c.numerical>0)       s+=`<span class="tag tag-num">${c.numerical} Num</span>`;
+  if(c.multiple_choice>0)  s+=`<span class="tag tag-mc">${c.multiple_choice} MCQ</span>`;
+  if(c.true_false>0)       s+=`<span class="tag tag-tf">${c.true_false} T/F</span>`;
+  if(c.multiple_answers>0) s+=`<span class="tag tag-ma">${c.multiple_answers} MA</span>`;
+  if(c.fill_in_blanks>0)   s+=`<span class="tag tag-fib">${c.fill_in_blanks} FIB</span>`;
+  if(c.short_answer>0)     s+=`<span class="tag tag-sa">${c.short_answer} SA</span>`;
+  if(c.essay>0)            s+=`<span class="tag tag-essay">${c.essay} Essay</span>`;
+  if(c.numerical>0)        s+=`<span class="tag tag-num">${c.numerical} Num</span>`;
   return s||`<span class="tag" style="background:#f3f4f6;color:var(--muted)">0 questions</span>`;
 }
 
