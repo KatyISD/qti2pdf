@@ -142,8 +142,8 @@ input[type=text]:focus,input[type=number]:focus,select:focus{outline:none;border
     <div class="field">
       <label>Version label type</label>
       <select id="versionType" onchange="updateTitlePreview()">
-        <option value="number">Numbers (1, 2, 3…)</option>
         <option value="letter">Letters (A, B, C…)</option>
+        <option value="number">Numbers (1, 2, 3…)</option>
       </select>
     </div>
   </div>
@@ -151,7 +151,7 @@ input[type=text]:focus,input[type=number]:focus,select:focus{outline:none;border
   <div class="config-grid" style="margin-top:14px">
     <div class="field">
       <label>Number of versions</label>
-      <input type="number" id="numVersions" value="2" min="1" max="26">
+      <input type="number" id="numVersions" value="2" min="1" max="26" oninput="updateTitlePreview()">
     </div>
     <div class="field">
       <label>Total questions per version</label>
@@ -177,6 +177,7 @@ input[type=text]:focus,input[type=number]:focus,select:focus{outline:none;border
       <h3>Answer Key Options</h3>
       <div class="checkbox-row"><input type="checkbox" id="keyFull" checked><label for="keyFull">Full layout key (answers shown inline)</label></div>
       <div class="checkbox-row"><input type="checkbox" id="keyCompact" checked><label for="keyCompact">Compact key (number → answer list)</label></div>
+      <div class="checkbox-row" id="keyMCRRow"><input type="checkbox" id="keyMCR"><label for="keyMCR">Open MCR key CSV <span style="font-size:.75rem;color:var(--muted)">(letters A–F, MCQ/MA only, ≤150 Qs)</span></label></div>
     </div>
   </div>
 
@@ -1509,6 +1510,45 @@ function buildDocx(questions, title, isKey, essayInches, opts, isCompactKey) {
 //  GENERATE LOGIC
 // ═══════════════════════════════════════════════════════════════
 
+// Build Open MCR answer key CSV for the given array of versioned question sets.
+// versions: array of prepared question arrays (one per form A,B,C…F max)
+// Returns CSV string, or null if not applicable.
+function buildOpenMCRcsv(versions) {
+  // Determine column count: 75 or 150
+  const maxQ = Math.max(...versions.map(qs => qs.length));
+  if (maxQ > 150) return null; // too many questions for this sheet
+  const cols = maxQ > 75 ? 150 : 75;
+  const formCodes = ['A','B','C','D','E','F'];
+
+  // Header row
+  const header = ['Test Form Code', 'Source File'];
+  for (let i = 1; i <= cols; i++) header.push(`Q${i}`);
+
+  const rows = [header.join(',')];
+
+  for (let v = 0; v < versions.length && v < 6; v++) {
+    const qs = versions[v];
+    const row = [formCodes[v], '']; // Source File left blank
+    for (let qi = 0; qi < cols; qi++) {
+      const q = qs[qi];
+      if (!q) {
+        row.push('');
+      } else if (q.type === 'multiple_choice') {
+        row.push(q.correctLetter || '');
+      } else if (q.type === 'multiple_answers') {
+        // Format: [A|C] or [A|C|D|E] — pipe-separated sorted letters in brackets
+        const sorted = [...(q.correctLetters || [])].sort();
+        row.push(sorted.length ? '[' + sorted.join('|') + ']' : '');
+      } else {
+        row.push(''); // T/F, essay, FIB etc. — not supported by MCR sheet
+      }
+    }
+    rows.push(row.join(','));
+  }
+
+  return rows.join('\r\n');
+}
+
 async function generate() {
   const alerts = document.getElementById('alerts');
   alerts.innerHTML = '';
@@ -1521,6 +1561,7 @@ async function generate() {
   const fmtDOCX = document.getElementById('fmtDOCX').checked;
   const keyFull = document.getElementById('keyFull').checked;
   const keyCompact = document.getElementById('keyCompact').checked;
+  const keyMCR = document.getElementById('keyMCR').checked && vType === 'letter';
   const essayInches = parseFloat(document.getElementById('essayInches').value)||2;
   const opts = {
     showName:  document.getElementById('showName').checked,
@@ -1529,11 +1570,15 @@ async function generate() {
   };
 
   if (state.files.length===0) { showAlert('No QTI files loaded.','err'); return; }
-  if (!fmtPDF && !fmtDOCX) { showAlert('Please select at least one output format (PDF or DOCX).','err'); return; }
+  if (!fmtPDF && !fmtDOCX && !keyMCR) { showAlert('Please select at least one output format (PDF or DOCX).','err'); return; }
 
   // Build question pool
   const allQuestions = state.files.flatMap(f=>f.questions);
   if (allQuestions.length===0) { showAlert('No questions found in uploaded files.','err'); return; }
+
+  if (keyMCR && numVersions > 6) {
+    showAlert('Open MCR CSV only supports up to 6 versions (A–F). Only versions A–F will be included in the CSV.','warn');
+  }
 
   if (numQ > allQuestions.length) {
     showAlert(`Requested ${numQ} questions but only ${allQuestions.length} available. Using all available.`,'warn');
@@ -1621,6 +1666,20 @@ async function generate() {
     }
   }
 
+  // Open MCR key CSV
+  if (keyMCR) {
+    const mcrVersions = versions.slice(0, 6); // A–F only
+    const effectiveQcount = mcrVersions[0] ? mcrVersions[0].length : 0;
+    if (effectiveQcount > 150) {
+      showAlert('Open MCR CSV skipped: more than 150 questions per version is not supported.','warn');
+    } else {
+      const csv = buildOpenMCRcsv(mcrVersions);
+      if (csv) {
+        outputZip.file('keys_openmcr.csv', csv);
+      }
+    }
+  }
+
   setProgress(100,'Packaging ZIP…');
   await new Promise(r=>setTimeout(r,50));
 
@@ -1652,6 +1711,17 @@ function updateTitlePreview() {
   const lbl = vType==='letter'?'A':'1';
   document.getElementById('titlePreview').textContent =
     '→ e.g. "' + title.replace(/\{V\}/g, lbl) + '"';
+  // Open MCR option: disabled if not letters or more than 6 versions
+  const numV = parseInt(document.getElementById('numVersions').value) || 1;
+  const mcrOk = vType === 'letter' && numV <= 6;
+  const mcrCb = document.getElementById('keyMCR');
+  const mcrRow = document.getElementById('keyMCRRow');
+  mcrCb.disabled = !mcrOk;
+  mcrRow.style.opacity = mcrOk ? '' : '0.45';
+  mcrRow.title = !mcrOk
+    ? (vType !== 'letter' ? 'Requires letter version labels' : 'Requires 6 or fewer versions (A–F)')
+    : '';
+  if (!mcrOk) mcrCb.checked = false;
 }
 
 function renderSummary() {
