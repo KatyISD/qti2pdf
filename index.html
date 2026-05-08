@@ -1325,6 +1325,7 @@ function makeFIBDocxChildren(q, isKey) {
 }
 
 function buildDocx(questions, title, isKey, essayInches, opts, isCompactKey) {
+  if (!window.docx) throw new Error('docx library is not loaded. Please refresh the page and try again.');
   const {
     Document, Paragraph, TextRun, AlignmentType, Header, Footer,
     PageNumber, BorderStyle, Packer,
@@ -1571,6 +1572,19 @@ async function generate() {
 
   if (state.files.length===0) { showAlert('No QTI files loaded.','err'); return; }
   if (!fmtPDF && !fmtDOCX && !keyMCR) { showAlert('Please select at least one output format (PDF or DOCX).','err'); return; }
+
+  // Ensure docx library is available if DOCX output is requested
+  if (fmtDOCX && !window.docx) {
+    showAlert('Word (docx) library not loaded yet — retrying…', 'warn');
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.min.js';
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('Failed to load docx library. Check your internet connection and try again.'));
+      document.head.appendChild(s);
+    }).catch(err => { showAlert(err.message, 'err'); throw err; });
+    alerts.innerHTML = '';
+  }
 
   // Build question pool
   const allQuestions = state.files.flatMap(f=>f.questions);
